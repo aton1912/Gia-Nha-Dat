@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+from sklearn.ensemble import RandomForestRegressor
 
 # ── Cấu hình trang ─────────────────────────────────────────────
 st.set_page_config(
@@ -15,14 +16,45 @@ st.set_page_config(
     layout="centered"
 )
 
+# ── Tự động tạo mô hình nếu thiếu ──────────────────────────────
+def auto_create_model(model_path):
+    # Tạo thư mục models nếu chưa có
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    
+    # Tạo dữ liệu giả lập nhanh để huấn luyện
+    np.random.seed(42)
+    n_samples = 100
+    X = pd.DataFrame({
+        "dien_tich_m2": np.random.randint(30, 200, n_samples),
+        "so_phong_ngu": np.random.randint(1, 5, n_samples),
+        "so_toilet": np.random.randint(1, 4, n_samples),
+        "so_tang": np.random.randint(1, 4, n_samples),
+        "tuoi_nha_nam": np.random.randint(0, 20, n_samples),
+        "khoang_cach_trung_tam_km": np.random.uniform(1, 15, n_samples),
+        "co_gara": np.random.randint(0, 2, n_samples),
+        "mat_tien": np.random.randint(0, 2, n_samples)
+    })
+    # Công thức giả lập tính giá nhà (Tỷ VNĐ)
+    y = (X["dien_tich_m2"] * 0.05 + X["so_phong_ngu"] * 0.2 + 
+         X["so_tang"] * 0.3 - X["tuoi_nha_nam"] * 0.02 - 
+         X["khoang_cach_trung_tam_km"] * 0.1 + X["mat_tien"] * 0.5)
+    
+    # Huấn luyện nhanh một mô hình Random Forest
+    model = RandomForestRegressor(n_estimators=50, random_state=42)
+    model.fit(X, y)
+    
+    # Lưu lại
+    joblib.dump(model, model_path)
+    return model
+
 # ── Load mô hình ───────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     model_path = os.path.join(os.path.dirname(__file__), "models", "best_model.pkl")
     if not os.path.exists(model_path):
-        return None
+        # Nếu thiếu file, tự tạo luôn chứ không trả về None nữa!
+        return auto_create_model(model_path)
     return joblib.load(model_path)
-
 
 model = load_model()
 
@@ -48,31 +80,28 @@ with col2:
 st.divider()
 
 if st.button("🔍 Dự đoán giá", type="primary", use_container_width=True):
-    if model is None:
-        st.error("❌ Chưa tìm thấy mô hình. Vui lòng chạy `train_model.py` trước.")
-    else:
-        input_data = pd.DataFrame([{
-            "dien_tich_m2": dien_tich,
-            "so_phong_ngu": so_phong_ngu,
-            "so_toilet": so_toilet,
-            "so_tang": so_tang,
-            "tuoi_nha_nam": tuoi_nha,
-            "khoang_cach_trung_tam_km": khoang_cach,
-            "co_gara": int(co_gara),
-            "mat_tien": int(mat_tien)
-        }])
+    input_data = pd.DataFrame([{
+        "dien_tich_m2": dien_tich,
+        "so_phong_ngu": so_phong_ngu,
+        "so_toilet": so_toilet,
+        "so_tang": so_tang,
+        "tuoi_nha_nam": tuoi_nha,
+        "khoang_cach_trung_tam_km": khoang_cach,
+        "co_gara": int(co_gara),
+        "mat_tien": int(mat_tien)
+    }])
 
-        gia_du_doan = model.predict(input_data)[0]
-        gia_du_doan = max(0.5, round(gia_du_doan, 2))
+    gia_du_doan = model.predict(input_data)[0]
+    gia_du_doan = max(0.5, round(gia_du_doan, 2))
 
-        st.success(f"### 💰 Giá dự đoán: **{gia_du_doan:.2f} Tỷ VNĐ**")
-        st.caption(
-            f"≈ {gia_du_doan * 1000:.0f} Triệu VNĐ  |  "
-            f"Đơn giá: {gia_du_doan * 1000 / dien_tich:.1f} Triệu/m²"
-        )
+    st.success(f"### 💰 Giá dự đoán: **{gia_du_doan:.2f} Tỷ VNĐ**")
+    st.caption(
+        f"≈ {gia_du_doan * 1000:.0f} Triệu VNĐ  |  "
+        f"Đơn giá: {gia_du_doan * 1000 / dien_tich:.1f} Triệu/m²"
+    )
 
-        with st.expander("📋 Thông tin đã nhập"):
-            st.dataframe(input_data.T.rename(columns={0: "Giá trị"}))
+    with st.expander("📋 Thông tin đã nhập"):
+        st.dataframe(input_data.T.rename(columns={0: "Giá trị"}))
 
 st.divider()
 st.caption("⚠️ Kết quả mang tính tham khảo, dựa trên mô hình huấn luyện từ dữ liệu giả lập.")
